@@ -1,0 +1,14 @@
+name: intro_pytorch
+channels:
+  - microsoft
+  - conda-forge
+  - https://repo.anaconda.com/pkgs/main
+  - https://repo.anaconda.com/pkgs/r
+dependencies:
+  - conda-forge::pytorch
+  - conda-forge::torchvision
+  - anaconda::jupyter
+  - anaconda::matplotlib
+  - python=3.12
+  - conda-forge::torchinfo
+  - anaconda::numpy
