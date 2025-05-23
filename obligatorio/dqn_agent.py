@@ -20,6 +20,7 @@ class DQNAgent(Agent):
         epsilon_anneal_steps,
         episode_block,
         device,
+        checkpoint_interval=1000,  # Add checkpoint interval
     ):
         super().__init__(
             env,
@@ -33,6 +34,7 @@ class DQNAgent(Agent):
             epsilon_anneal_steps,
             episode_block,
             device,
+            checkpoint_interval,  # Pass checkpoint interval to superclass
         )
         # Guardar entorno y función de preprocesamiento
         # Inicializar policy_net en device
@@ -57,6 +59,7 @@ class DQNAgent(Agent):
         self.epsilon_f = epsilon_f
         self.epsilon_anneal_steps = epsilon_anneal_steps
         self.episode_block = episode_block
+        self.checkpoint_interval = checkpoint_interval
 
     def select_action(self, state, current_steps, train=True):
         # Calcular epsilon según step
@@ -64,20 +67,13 @@ class DQNAgent(Agent):
         #                   sino greedy_action
         # Durante evaluación: usar greedy_action (o pequeña epsilon fija)
         self.epsilon = self.compute_epsilon(current_steps)
-        if train:
-            if np.random.rand() < self.epsilon:
-                action = self.env.action_space.sample()
-            else:
-                with torch.no_grad():
-                    state_tensor = torch.tensor(state, device=self.device).unsqueeze(0)
-                    q_values = self.policy_net(state_tensor)
-                    action = q_values.max(1)[1].item()
+        if train and np.random.rand() < self.epsilon:
+            action = self.env.action_space.sample()
         else:
             with torch.no_grad():
-                state_tensor = torch.tensor(state, device=self.device).unsqueeze(0)
+                state_tensor = state.clone().detach().unsqueeze(0)
                 q_values = self.policy_net(state_tensor)
-                action = q_values.max(1)[1].item()
-
+                action = q_values.argmax().item()
         return action
 
     def update_weights(self):
@@ -92,16 +88,16 @@ class DQNAgent(Agent):
         else:
             tranitions = self.memory.sample(self.batch_size)
             batch = Transition(*zip(*tranitions))
-            state_batch = torch.stack(
-                [torch.tensor(s, dtype=torch.float32) for s in batch.state]
-            ).to(self.device)
+            state_batch = torch.stack([s.clone().detach() for s in batch.state]).to(
+                self.device
+            )
             action_batch = torch.tensor(batch.action, device=self.device)
             reward_batch = torch.tensor(batch.reward, device=self.device)
             done_batch = torch.tensor(
                 batch.done, dtype=torch.float32, device=self.device
             )
             next_state_batch = torch.stack(
-                [torch.tensor(s, dtype=torch.float32) for s in batch.next_state]
+                [s.clone().detach() for s in batch.next_state]
             ).to(self.device)
 
             q_current = (
@@ -117,7 +113,7 @@ class DQNAgent(Agent):
                 target = reward_batch + self.gamma * max_q_next_state
 
             loss = self.criterion(q_current, target)
-            # self.optimizer.zero_grad()
+            self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
             return loss.item()

@@ -33,7 +33,8 @@ class ReplayMemory:
             self.memory.append(transition)
         else:
             self.memory[self.position] = transition
-            self.position = self.position + 1 % self.capacity
+
+        self.position = (self.position + 1) % self.capacity
 
     def sample(self, batch_size):
         """
@@ -44,6 +45,8 @@ class ReplayMemory:
          - lista de Transition de longitud batch_size.
         """
         # TODO: verificar que batch_size <= len(self)
+        if batch_size > len(self):
+            raise ValueError("Batch size exceeds the number of transitions in memory.")
         # TODO: retornar una muestra aleatoria de self.memory
         return random.sample(self.memory, batch_size)
 

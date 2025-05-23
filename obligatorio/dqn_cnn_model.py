@@ -41,26 +41,37 @@ class DQN_CNN_Model(nn.Module):
         super(DQN_CNN_Model, self).__init__()
         # TODO: definir capas convolucionales basadas en obs_shape
         # TODO: definir capas lineales basadas en n_actions
-        self.conv1 = nn.Conv2d(obs_shape[0], 16, kernel_size=8, stride=4)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=4, stride=2)
 
-        self.fc1 = nn.Linear(32 * 9 * 9, 256)
-        self.fc2 = nn.Linear(256, n_actions)
+        self.l1 = nn.Sequential(
+            nn.Conv2d(obs_shape[0], 16, kernel_size=8, stride=4),
+            nn.ReLU(),
+            nn.Conv2d(16, 32, kernel_size=4, stride=2),
+            nn.ReLU(),
+        )
 
-    def forward(self, obs):
+        self.l2 = nn.Sequential(
+            nn.Linear(32 * 9 * 9, 256), nn.ReLU(), nn.Linear(256, n_actions)
+        )
+
+    def forward(self, x):
         # TODO: 1) aplicar convoluciones y activaciones
         #       2) aplanar la salida
         #       3) aplicar capas lineales
         #       4) devolver tensor de Q-values de tamaño (batch, n_actions)
-        self.conv1_out = F.relu(self.conv1(obs))
-        self.conv2_out = F.relu(self.conv2(self.conv1_out))
-        self.flatten = self.conv2_out.view(self.conv2_out.size(0), -1)
-        self.fc1_out = F.relu(self.fc1(self.flatten))
-        self.fc2_out = self.fc2(self.fc1_out)
-        return self.fc2_out
+        x = self.l1(x)
+        x = x.view(x.size(0), -1)
+        actions = self.l2(x)
+
+        return actions
 
     def load_weights(self, path, device):
         """
         Carga los pesos del modelo desde un archivo.
         """
         self.load_state_dict(torch.load(path, map_location=device))
+
+    def save_weights(self, path):
+        """
+        Guarda los pesos del modelo en un archivo.
+        """
+        torch.save(self.state_dict(), path)

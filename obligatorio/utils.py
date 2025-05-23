@@ -1,3 +1,4 @@
+import torch
 import numpy as np
 import matplotlib.pyplot as plt
 import gymnasium
@@ -12,6 +13,13 @@ from gymnasium.wrappers import (
     AtariPreprocessing,
     FrameStackObservation,
 )
+
+
+def process_state(obs):
+    """
+    Preprocess the state to be used as input for the model (transform to tensor).
+    """
+    return torch.tensor(obs, dtype=torch.float32, device="cuda") / 255.0
 
 
 def show_observation(observation):
