@@ -19,7 +19,7 @@ def process_state(obs):
     """
     Preprocess the state to be used as input for the model (transform to tensor).
     """
-    return torch.tensor(obs, dtype=torch.float32, device="cuda") / 255.0
+    return torch.tensor(obs, dtype=torch.float32, device="cpu") / 255.0
 
 
 def show_observation(observation):
