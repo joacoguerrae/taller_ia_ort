@@ -88,6 +88,7 @@ class DQNAgent(Agent):
         else:
             tranitions = self.memory.sample(self.batch_size)
             batch = Transition(*zip(*tranitions))
+            
             state_batch = torch.stack([s.clone().detach() for s in batch.state]).to(
                 self.device
             )
@@ -117,3 +118,19 @@ class DQNAgent(Agent):
             loss.backward()
             self.optimizer.step()
             return loss.item()
+
+    def save_checkpoint(self, path):
+        """
+        Save the current model state to a file in the DQN weights directory.
+        """
+        save_path = f"weights/dqn/{path}"
+        torch.save(self.policy_net.state_dict(), save_path)
+        print(f"Checkpoint saved to {save_path}")
+
+    def load_checkpoint(self, path):
+        """
+        Load the model state from a file in the DQN weights directory.
+        """
+        load_path = f"weights/dqn/{path}"
+        self.policy_net.load_state_dict(torch.load(load_path, map_location=self.device))
+        print(f"Checkpoint loaded from {load_path}")
