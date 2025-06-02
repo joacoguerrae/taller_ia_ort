@@ -92,6 +92,16 @@ class DoubleDQNAgent(Agent):
                 actions = q_values.max(1)[1].cpu().numpy()
                 return actions if is_batched else actions[0]
 
+    def select_action_vec(self, state, current_steps, train=True):
+        if train and random.random() < self.compute_epsilon(current_steps):
+            num_envs = state.shape[0]
+            return np.array([self.action_space.sample() for _ in range(num_envs)])
+        else:
+            with torch.no_grad():
+                q_values = self.policy_net(state)
+                actions = q_values.max(1)[1].cpu().numpy()
+                return actions
+
     def update_weights(self):
         if self.memory.__len__() < self.batch_size:
             return None  # Explicitly return None for loss tracking

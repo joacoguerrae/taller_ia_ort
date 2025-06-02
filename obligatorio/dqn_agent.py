@@ -76,6 +76,19 @@ class DQNAgent(Agent):
                 action = q_values.argmax().item()
         return action
 
+    def select_action_vec(self, states, current_steps, train=True):
+        self.epsilon = self.compute_epsilon(current_steps)
+
+        if train and np.random.rand() < self.epsilon:
+            num_envs = states.shape[0]
+            actions = [self.action_space.sample() for _ in range(num_envs)]
+            return np.array(actions)
+        else:
+            with torch.no_grad():
+                q_values = self.policy_net(states)
+                actions = q_values.argmax(dim=1).cpu().numpy()
+            return actions
+
     def update_weights(self):
         # 1) Comprobar que hay al menos batch_size muestras en memoria
         # 2) Muestrear minibatch y convertir a tensores (states, actions, rewards, dones, next_states)
@@ -93,7 +106,7 @@ class DQNAgent(Agent):
                 self.device
             )
             action_batch = torch.tensor(batch.action, device=self.device)
-            reward_batch = torch.tensor(batch.reward, device=self.device)
+            reward_batch = torch.tensor(batch.reward, dtype=torch.float32, device=self.device)
             done_batch = torch.tensor(
                 batch.done, dtype=torch.float32, device=self.device
             )
