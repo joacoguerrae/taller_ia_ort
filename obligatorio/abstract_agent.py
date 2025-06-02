@@ -114,7 +114,7 @@ class Agent(ABC):
             pbar.set_postfix(metrics)
 
             if (ep + 1) % self.checkpoint_interval == 0:
-                self.save_checkpoint(ep, total_steps, rewards)
+                self.save_checkpoint(f"checkpoint_{ep + 1}")
 
         return rewards
 
