@@ -37,7 +37,7 @@ class Agent(ABC):
         self.env = gym_env
 
         # Handle both single and vectorized environments
-        if hasattr(gym_env, 'num_envs'):
+        if hasattr(gym_env, "num_envs"):
             # This is a vectorized environment
             self.action_space = gym_env.single_action_space
             self.is_vectorized = True
@@ -125,6 +125,10 @@ class Agent(ABC):
         Trains the agent using a vectorized environment with a clean progress bar
         displaying average loss and epsilon.
         """
+
+        episode_rewards = [[] for _ in range(self.env.num_envs)]
+        completed_rewards = []
+
         if not self.is_vectorized:
             print("Error: train_vec() can only be called on a vectorized environment.")
             return
@@ -132,25 +136,42 @@ class Agent(ABC):
         # We only need to track the history of losses now
         losses_history = []
         latest_avg_loss = 0.0
-        
+
         self.total_steps = 0
 
         states, _ = self.env.reset()
+        # print(states.shape)
         states_phi = self.state_processing_function(states)
 
         pbar = tqdm(total=max_steps, desc="Vectorized Training", unit="step")
 
         while self.total_steps < max_steps:
+            # print("LLEGO ANTES")
+
             actions = self.select_action_vec(states_phi, self.total_steps, train=True)
-            
+            # print("LLEGO")
+
             # We no longer need the 'infos' dictionary from the step
             next_states, rewards, terminateds, truncateds, _ = self.env.step(actions)
             dones = np.logical_or(terminateds, truncateds)
-            
+
+            for i in range(self.env.num_envs):
+                episode_rewards[i].append(rewards[i])
+
+                if dones[i]:
+                    # Episodio completo para este entorno
+                    completed_reward = sum(episode_rewards[i])
+                    completed_rewards.append(completed_reward)
+                    episode_rewards[
+                        i
+                    ] = []  # Reiniciamos recompensa para nuevo episodio
+
             next_states_phi = self.state_processing_function(next_states)
 
             for i in range(self.env.num_envs):
-                self.memory.add(states_phi[i], actions[i], rewards[i], dones[i], next_states_phi[i])
+                self.memory.add(
+                    states_phi[i], actions[i], rewards[i], dones[i], next_states_phi[i]
+                )
 
             states_phi = next_states_phi
             self.total_steps += self.env.num_envs
@@ -162,18 +183,21 @@ class Agent(ABC):
                 losses_history.append(loss)
                 latest_avg_loss = np.mean(losses_history[-100:])
 
+            avg_reward = (
+                np.mean(completed_rewards[-100:]) if len(completed_rewards) >= 1 else 0
+            )
+
             # The updated, cleaner metrics dictionary
             metrics = {
                 "steps": f"{self.total_steps}/{max_steps}",
                 "avg_loss": round(latest_avg_loss, 5),
-                "epsilon": round(self.compute_epsilon(self.total_steps), 3)
+                "epsilon": round(self.compute_epsilon(self.total_steps), 3),
+                "avg_reward": round(avg_reward, 2),
             }
             pbar.set_postfix(metrics)
 
         pbar.close()
         self.env.close()
-
-
 
     def compute_epsilon(self, steps_so_far):
         """
