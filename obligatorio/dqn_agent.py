@@ -76,6 +76,19 @@ class DQNAgent(Agent):
                 action = q_values.argmax().item()
         return action
 
+    def select_action_vec(self, states, current_steps, train=True):
+        self.epsilon = self.compute_epsilon(current_steps)
+
+        if train and np.random.rand() < self.epsilon:
+            num_envs = states.shape[0]
+            actions = [self.action_space.sample() for _ in range(num_envs)]
+            return np.array(actions)
+        else:
+            with torch.no_grad():
+                q_values = self.policy_net(states)
+                actions = q_values.argmax(dim=1).cpu().numpy()
+            return actions
+
     def update_weights(self):
         # 1) Comprobar que hay al menos batch_size muestras en memoria
         # 2) Muestrear minibatch y convertir a tensores (states, actions, rewards, dones, next_states)
@@ -88,11 +101,12 @@ class DQNAgent(Agent):
         else:
             tranitions = self.memory.sample(self.batch_size)
             batch = Transition(*zip(*tranitions))
+            
             state_batch = torch.stack([s.clone().detach() for s in batch.state]).to(
                 self.device
             )
             action_batch = torch.tensor(batch.action, device=self.device)
-            reward_batch = torch.tensor(batch.reward, device=self.device)
+            reward_batch = torch.tensor(batch.reward, dtype=torch.float32, device=self.device)
             done_batch = torch.tensor(
                 batch.done, dtype=torch.float32, device=self.device
             )
@@ -117,3 +131,19 @@ class DQNAgent(Agent):
             loss.backward()
             self.optimizer.step()
             return loss.item()
+
+    def save_checkpoint(self, path):
+        """
+        Save the current model state to a file in the DQN weights directory.
+        """
+        save_path = f"weights/dqn/{path}"
+        torch.save(self.policy_net.state_dict(), save_path)
+        print(f"Checkpoint saved to {save_path}")
+
+    def load_checkpoint(self, path):
+        """
+        Load the model state from a file in the DQN weights directory.
+        """
+        load_path = f"weights/dqn/{path}"
+        self.policy_net.load_state_dict(torch.load(load_path, map_location=self.device))
+        print(f"Checkpoint loaded from {load_path}")

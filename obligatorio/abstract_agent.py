@@ -36,6 +36,16 @@ class Agent(ABC):
 
         self.env = gym_env
 
+        # Handle both single and vectorized environments
+        if hasattr(gym_env, 'num_envs'):
+            # This is a vectorized environment
+            self.action_space = gym_env.single_action_space
+            self.is_vectorized = True
+        else:
+            # This is a single environment
+            self.action_space = gym_env.action_space
+            self.is_vectorized = False
+
         # Hyperparameters
         self.batch_size = batch_size
         self.learning_rate = learning_rate
@@ -104,9 +114,66 @@ class Agent(ABC):
             pbar.set_postfix(metrics)
 
             if (ep + 1) % self.checkpoint_interval == 0:
-                self.save_checkpoint(ep, total_steps, rewards)
+                self.save_checkpoint(f"checkpoint_{ep + 1}")
 
         return rewards
+
+    # In obligatorio/abstract_agent.py, replace the existing train_vec() method with this:
+
+    def train_vec(self, max_steps=1_000_000):
+        """
+        Trains the agent using a vectorized environment with a clean progress bar
+        displaying average loss and epsilon.
+        """
+        if not self.is_vectorized:
+            print("Error: train_vec() can only be called on a vectorized environment.")
+            return
+
+        # We only need to track the history of losses now
+        losses_history = []
+        latest_avg_loss = 0.0
+        
+        self.total_steps = 0
+
+        states, _ = self.env.reset()
+        states_phi = self.state_processing_function(states)
+
+        pbar = tqdm(total=max_steps, desc="Vectorized Training", unit="step")
+
+        while self.total_steps < max_steps:
+            actions = self.select_action_vec(states_phi, self.total_steps, train=True)
+            
+            # We no longer need the 'infos' dictionary from the step
+            next_states, rewards, terminateds, truncateds, _ = self.env.step(actions)
+            dones = np.logical_or(terminateds, truncateds)
+            
+            next_states_phi = self.state_processing_function(next_states)
+
+            for i in range(self.env.num_envs):
+                self.memory.add(states_phi[i], actions[i], rewards[i], dones[i], next_states_phi[i])
+
+            states_phi = next_states_phi
+            self.total_steps += self.env.num_envs
+            pbar.update(self.env.num_envs)
+
+            # Update weights and store the loss
+            loss = self.update_weights()
+            if loss is not None:
+                losses_history.append(loss)
+                latest_avg_loss = np.mean(losses_history[-100:])
+
+            # The updated, cleaner metrics dictionary
+            metrics = {
+                "steps": f"{self.total_steps}/{max_steps}",
+                "avg_loss": round(latest_avg_loss, 5),
+                "epsilon": round(self.compute_epsilon(self.total_steps), 3)
+            }
+            pbar.set_postfix(metrics)
+
+        pbar.close()
+        self.env.close()
+
+
 
     def compute_epsilon(self, steps_so_far):
         """
@@ -143,57 +210,6 @@ class Agent(ABC):
                 state_tensor = next_state
                 done = terminated or truncated
 
-    def save_checkpoint(self, episode, total_steps, rewards):
-        """
-        Saves a checkpoint of the agent's state.
-        """
-        checkpoint_path = f"checkpoint_ep{episode}.pth"
-        checkpoint = {
-            "episode": episode,
-            "total_steps": total_steps,
-            "rewards": rewards,
-            "policy_net_state_dict": self.policy_net.state_dict(),
-            "optimizer_state_dict": self.optimizer.state_dict(),
-            "memory": self.memory,
-            "epsilon": self.compute_epsilon(total_steps),
-        }
-        torch.save(checkpoint, checkpoint_path)
-        print(f"\nCheckpoint saved: {checkpoint_path}")
-
-    def load_checkpoint(self, checkpoint_path):
-        """
-        Loads a checkpoint and restores the agent's state.
-
-        Args:
-            checkpoint_path (str): Path to the checkpoint file
-
-        Returns:
-            bool: True if checkpoint was loaded successfully, False otherwise
-        """
-        try:
-            checkpoint = torch.load(checkpoint_path, map_location=self.device)
-
-            # Load model state
-            self.policy_net.load_state_dict(checkpoint["policy_net_state_dict"])
-            self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-
-            # Load training state
-            self.memory = checkpoint["memory"]
-            episode = checkpoint["episode"]
-            total_steps = checkpoint["total_steps"]
-            rewards = checkpoint["rewards"]
-
-            print(f"\nCheckpoint loaded successfully from {checkpoint_path}")
-            print(f"Resuming from episode {episode}")
-            return True
-
-        except FileNotFoundError:
-            print(f"\nNo checkpoint found at {checkpoint_path}")
-            return False
-        except Exception as e:
-            print(f"\nError loading checkpoint: {str(e)}")
-            return False
-
     @abstractmethod
     def select_action(self, state, current_steps, train=True):
         """
@@ -208,5 +224,32 @@ class Agent(ABC):
         pass
 
     @abstractmethod
+    def select_action_vec(self, state, current_steps, train=True):
+        """
+        Selects a batch of actions for a batch of states from a vectorized environment.
+        """
+        pass
+
+    @abstractmethod
     def update_weights(self):
+        pass
+
+    @abstractmethod
+    def save_checkpoint(self, path):
+        """
+        Saves a checkpoint of the agent's weights.
+        """
+        pass
+
+    @abstractmethod
+    def load_checkpoint(self, path):
+        """
+        Loads a checkpoint and restores the agent's state.
+
+        Args:
+            path (str): Path to the checkpoint file
+
+        Returns:
+            bool: True if checkpoint was loaded successfully, False otherwise
+        """
         pass

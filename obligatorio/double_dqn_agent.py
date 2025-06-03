@@ -59,60 +59,120 @@ class DoubleDQNAgent(Agent):
         self.epsilon_f = epsilon_f
         self.epsilon_anneal_steps = epsilon_anneal_steps
         # Inicializar contador de pasos para sincronizar target
+        # Initialize target network with same weights as policy network
+        self.target_net.load_state_dict(self.policy_net.state_dict())
+        self.target_net.eval()  # Set target net to eval mode
+
+        # Use a smaller sync_target value at start
         self.sync_target = sync_target
         self.steps_done = 0
         # Inicializar epsilon
 
     def select_action(self, state, current_steps, train=True):
-        # Calcular epsilon decay según step (entre eps_start y eps_end en eps_steps)
-        self.epsilon = self.compute_epsilon(current_steps)
-        # Si train y con probabilidad epsilon: acción aleatoria
-        if train and random.random() < self.epsilon:
-            # Escoger acción aleatoria
-            action = self.env.action_space.sample()
-            return action
-        # En otro caso: usar greedy_action
+        """Select action using epsilon-greedy policy for single or vectorized environments"""
+        is_batched = len(state.shape) == 4  # Check if state is batched (B,C,H,W)
+        batch_size = state.shape[0] if is_batched else 1
+
+        if train and random.random() < self.compute_epsilon(current_steps):
+            # Handle random actions
+            if hasattr(self.env, "single_action_space"):
+                # Vectorized environment
+                return np.array(
+                    [self.env.single_action_space.sample() for _ in range(batch_size)]
+                )
+            else:
+                # Single environment
+                return self.env.action_space.sample()
+        else:
+            # Handle greedy actions
+            with torch.no_grad():
+                if not is_batched:
+                    state = state.unsqueeze(0)
+                q_values = self.policy_net(state)
+                actions = q_values.max(1)[1].cpu().numpy()
+                return actions if is_batched else actions[0]
+
+    def select_action_vec(self, state, current_steps, train=True):
+        if train and random.random() < self.compute_epsilon(current_steps):
+            num_envs = state.shape[0]
+            return np.array([self.action_space.sample() for _ in range(num_envs)])
         else:
             with torch.no_grad():
-                state_tensor = torch.tensor(state, device=self.device).unsqueeze(0)
-                q_values = self.policy_net(state_tensor)
-                action = q_values.argmax().item()
-            return action
+                q_values = self.policy_net(state)
+                actions = q_values.max(1)[1].cpu().numpy()
+                return actions
 
     def update_weights(self):
         if self.memory.__len__() < self.batch_size:
-            return
+            return None  # Explicitly return None for loss tracking
 
         transitions = self.memory.sample(self.batch_size)
         batch = Transition(*zip(*transitions))
 
-        # Move tensors to CPU before converting to numpy
+        # Properly handle dimensions and device
         states = torch.stack([s.clone().detach() for s in batch.state]).to(self.device)
-        actions = torch.tensor(batch.action, device=self.device)
-        rewards = torch.tensor(batch.reward, device=self.device)
+        actions = torch.tensor(
+            batch.action, device=self.device, dtype=torch.long
+        ).unsqueeze(1)  # Changed
+        rewards = torch.tensor(
+            batch.reward, device=self.device, dtype=torch.float32
+        ).unsqueeze(1)  # Changed
         next_states = torch.stack([s.clone().detach() for s in batch.next_state]).to(
             self.device
         )
-        dones = torch.tensor(batch.done, device=self.device, dtype=torch.float32)
+        dones = torch.tensor(
+            batch.done, device=self.device, dtype=torch.float32
+        ).unsqueeze(1)  # Changed
 
-        # 3) Calcular q_current: online_net(states).gather(…)
-        q_current = (self.policy_net(states).gather(1, actions.unsqueeze(1))).squeeze(1)
-        # 4) Calcular target Double DQN:
-        #    a) best_actions = online_net(next_states).argmax(…)
-        #    b) q_next = target_net(next_states).gather(… best_actions)
-        #    c) target_q = rewards + gamma * q_next * (1 - dones)
+        # Calculate current Q values
+        q_current = self.policy_net(states).gather(1, actions)
+
+        # Calculate target Q values using Double DQN
         with torch.no_grad():
-            best_actions = self.policy_net(next_states).argmax(1, keepdim=True)
-            q_next = self.target_net(next_states).gather(1, best_actions)
-            target_q = rewards + self.gamma * q_next * (1 - dones)
-        # 5) Computar loss MSE entre q_current y target_q, backprop y optimizer.step()
-        loss = self.criterion(q_current, target_q)
+            # Get actions from policy net
+            next_actions = self.policy_net(next_states).argmax(dim=1, keepdim=True)
+            # Get Q-values from target net for those actions
+            q_next = self.target_net(next_states).gather(1, next_actions)
+            # Calculate target values
+            target_q = rewards + (1 - dones) * self.gamma * q_next
+
+        # Compute loss and update
+        loss = self.criterion(q_current, target_q.detach())
         self.optimizer.zero_grad()
         loss.backward()
+        # Add gradient clipping
+        torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
         self.optimizer.step()
-        # 6) Decrementar contador y si llega a 0 copiar online_net → target_net
+
+        # Sync target network
         self.steps_done += 1
         if self.steps_done % self.sync_target == 0:
             self.target_net.load_state_dict(self.policy_net.state_dict())
 
         return loss.item()
+
+    def save_checkpoint(self, path):
+        """
+        Save both policy and target networks to files in the Double DQN weights directory.
+        """
+        base_path = f"weights/ddqn/{path}"
+        # Save policy network
+        policy_path = f"{base_path}_policy_net.pth"
+        torch.save(self.policy_net.state_dict(), policy_path)
+        # Save target network
+        target_path = f"{base_path}_target_net.pth"
+        torch.save(self.target_net.state_dict(), target_path)
+        print(f"Checkpoints saved to {policy_path} and {target_path}")
+
+    def load_checkpoint(self, path):
+        """
+        Load both policy and target networks from files in the Double DQN weights directory.
+        """
+        base_path = f"weights/ddqn/{path}"
+        # Load policy network
+        policy_path = f"{base_path}_policy_net.pth"
+        self.policy_net.load_state_dict(torch.load(policy_path, map_location=self.device))
+        # Load target network
+        target_path = f"{base_path}_target_net.pth"
+        self.target_net.load_state_dict(torch.load(target_path, map_location=self.device))
+        print(f"Checkpoints loaded from {policy_path} and {target_path}")
