@@ -36,17 +36,17 @@ class Agent(ABC):
 
         self.env = gym_env
 
-        # Handle both single and vectorized environments
+        # If para que manejemos entornos vectorizados y no vectorizados
         if hasattr(gym_env, "num_envs"):
-            # This is a vectorized environment
+            # Entonces es un entorno vectorizado
             self.action_space = gym_env.single_action_space
             self.is_vectorized = True
         else:
-            # This is a single environment
+            # Si es un entorno no vectorizado
             self.action_space = gym_env.action_space
             self.is_vectorized = False
 
-        # Hyperparameters
+        # Hiperparámetros del agente
         self.batch_size = batch_size
         self.learning_rate = learning_rate
         self.gamma = gamma
