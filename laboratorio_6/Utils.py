@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-def plot_rewards(rewards, average_range = 1000):
+def plot_rewards(rewards, average_range = 100):
     episode_ticks = int(len(rewards) / average_range)
 
     avg_rewards = np.array(rewards).reshape((episode_ticks, average_range))
