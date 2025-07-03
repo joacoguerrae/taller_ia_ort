@@ -24,6 +24,7 @@ class DoubleDQNAgent(Agent):
         episode_block,
         device,
         sync_target=1000,
+        with_priority=False,  # Double DQN does not use priority by default
     ):
         super().__init__(
             gym_env,
@@ -37,6 +38,7 @@ class DoubleDQNAgent(Agent):
             epsilon_anneal_steps,
             episode_block,
             device,
+            with_priority=False,  # Double DQN does not use priority by default
         )
         # Guardar entorno y función de preprocesamiento
         self.env = gym_env
@@ -66,6 +68,9 @@ class DoubleDQNAgent(Agent):
         # Use a smaller sync_target value at start
         self.sync_target = sync_target
         self.steps_done = 0
+        self.with_priority = (
+            with_priority  # Double DQN does not use priority by default
+        )
         # Inicializar epsilon
 
     def select_action(self, state, current_steps, train=True):
@@ -171,8 +176,15 @@ class DoubleDQNAgent(Agent):
         base_path = f"weights/ddqn/{path}"
         # Load policy network
         policy_path = f"{base_path}_policy_net.pth"
-        self.policy_net.load_state_dict(torch.load(policy_path, map_location=self.device))
+        self.policy_net.load_state_dict(
+            torch.load(policy_path, map_location=self.device)
+        )
         # Load target network
         target_path = f"{base_path}_target_net.pth"
-        self.target_net.load_state_dict(torch.load(target_path, map_location=self.device))
+        self.target_net.load_state_dict(
+            torch.load(target_path, map_location=self.device)
+        )
         print(f"Checkpoints loaded from {policy_path} and {target_path}")
+
+    def update_weights_prio(self):
+        pass

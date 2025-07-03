@@ -25,6 +25,7 @@ class Agent(ABC):
         episode_block,
         device,
         checkpoint_interval=1000,  # Add checkpoint interval
+        with_priority=False,  # Add priority flag
     ):
         self.device = device
 
@@ -59,12 +60,10 @@ class Agent(ABC):
 
         self.total_steps = 0
         self.checkpoint_interval = checkpoint_interval  # Store checkpoint interval
+        self.with_priority = with_priority  # Flag for priority memory
 
     def train(
-        self,
-        number_episodes=10_000,
-        max_steps_episode=10_000,
-        max_steps=1_000_000,
+        self, number_episodes=10_000, max_steps_episode=10_000, max_steps=1_000_000
     ):
         rewards = []
         total_steps = 0
@@ -92,9 +91,23 @@ class Agent(ABC):
                 total_steps += 1
                 current_episode_steps += 1
                 done = terminated or truncated
-                self.memory.add(state_phi, action, reward, done, next_state_phi)
 
-                loss = self.update_weights()
+                if self.with_priority:
+                    priority = (
+                        self.memory.max_priority
+                        if hasattr(self.memory, "max_priority")
+                        else 1.0
+                    )
+                    self.memory.add_with_priority(
+                        state, action, reward, done, next_state, priority
+                    )
+                else:
+                    self.memory.add(state_phi, action, reward, done, next_state_phi)
+
+                if self.with_priority:
+                    loss = self.update_weights_prio()
+                else:
+                    loss = self.update_weights()
                 if loss is not None:
                     episode_losses.append(loss)
 
@@ -117,87 +130,6 @@ class Agent(ABC):
                 self.save_checkpoint(f"checkpoint_{ep + 1}")
 
         return rewards
-
-    # In obligatorio/abstract_agent.py, replace the existing train_vec() method with this:
-
-    def train_vec(self, max_steps=1_000_000):
-        """
-        Trains the agent using a vectorized environment with a clean progress bar
-        displaying average loss and epsilon.
-        """
-
-        episode_rewards = [[] for _ in range(self.env.num_envs)]
-        completed_rewards = []
-
-        if not self.is_vectorized:
-            print("Error: train_vec() can only be called on a vectorized environment.")
-            return
-
-        # We only need to track the history of losses now
-        losses_history = []
-        latest_avg_loss = 0.0
-
-        self.total_steps = 0
-
-        states, _ = self.env.reset()
-        # print(states.shape)
-        states_phi = self.state_processing_function(states)
-
-        pbar = tqdm(total=max_steps, desc="Vectorized Training", unit="step")
-
-        while self.total_steps < max_steps:
-            # print("LLEGO ANTES")
-
-            actions = self.select_action_vec(states_phi, self.total_steps, train=True)
-            # print("LLEGO")
-
-            # We no longer need the 'infos' dictionary from the step
-            next_states, rewards, terminateds, truncateds, _ = self.env.step(actions)
-            dones = np.logical_or(terminateds, truncateds)
-
-            for i in range(self.env.num_envs):
-                episode_rewards[i].append(rewards[i])
-
-                if dones[i]:
-                    # Episodio completo para este entorno
-                    completed_reward = sum(episode_rewards[i])
-                    completed_rewards.append(completed_reward)
-                    episode_rewards[
-                        i
-                    ] = []  # Reiniciamos recompensa para nuevo episodio
-
-            next_states_phi = self.state_processing_function(next_states)
-
-            for i in range(self.env.num_envs):
-                self.memory.add(
-                    states_phi[i], actions[i], rewards[i], dones[i], next_states_phi[i]
-                )
-
-            states_phi = next_states_phi
-            self.total_steps += self.env.num_envs
-            pbar.update(self.env.num_envs)
-
-            # Update weights and store the loss
-            loss = self.update_weights()
-            if loss is not None:
-                losses_history.append(loss)
-                latest_avg_loss = np.mean(losses_history[-100:])
-
-            avg_reward = (
-                np.mean(completed_rewards[-100:]) if len(completed_rewards) >= 1 else 0
-            )
-
-            # The updated, cleaner metrics dictionary
-            metrics = {
-                "steps": f"{self.total_steps}/{max_steps}",
-                "avg_loss": round(latest_avg_loss, 5),
-                "epsilon": round(self.compute_epsilon(self.total_steps), 3),
-                "avg_reward": round(avg_reward, 2),
-            }
-            pbar.set_postfix(metrics)
-
-        pbar.close()
-        self.env.close()
 
     def compute_epsilon(self, steps_so_far):
         """
@@ -256,6 +188,10 @@ class Agent(ABC):
 
     @abstractmethod
     def update_weights(self):
+        pass
+
+    @abstractmethod
+    def update_weights_prio(self):
         pass
 
     @abstractmethod

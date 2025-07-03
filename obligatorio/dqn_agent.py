@@ -21,6 +21,7 @@ class DQNAgent(Agent):
         episode_block,
         device,
         checkpoint_interval=1000,  # Add checkpoint interval
+        with_priority=False,  # DQNAgent does not use priority by default
     ):
         super().__init__(
             env,
@@ -35,6 +36,7 @@ class DQNAgent(Agent):
             episode_block,
             device,
             checkpoint_interval,  # Pass checkpoint interval to superclass
+            with_priority=False,  # DQNAgent does not use priority by default
         )
         # Guardar entorno y función de preprocesamiento
         # Inicializar policy_net en device
@@ -60,6 +62,7 @@ class DQNAgent(Agent):
         self.epsilon_anneal_steps = epsilon_anneal_steps
         self.episode_block = episode_block
         self.checkpoint_interval = checkpoint_interval
+        self.with_priority = with_priority  # DQNAgent does not use priority by default
 
     def select_action(self, state, current_steps, train=True):
         # Calcular epsilon según step
@@ -101,18 +104,26 @@ class DQNAgent(Agent):
         else:
             tranitions = self.memory.sample(self.batch_size)
             batch = Transition(*zip(*tranitions))
-            
-            state_batch = torch.stack([s.clone().detach() for s in batch.state]).to(
-                self.device
+
+            state_batch = torch.stack(
+                [
+                    torch.tensor(s, dtype=torch.float32).to(self.device)
+                    for s in batch.state
+                ]
             )
             action_batch = torch.tensor(batch.action, device=self.device)
-            reward_batch = torch.tensor(batch.reward, dtype=torch.float32, device=self.device)
+            reward_batch = torch.tensor(
+                batch.reward, dtype=torch.float32, device=self.device
+            )
             done_batch = torch.tensor(
                 batch.done, dtype=torch.float32, device=self.device
             )
             next_state_batch = torch.stack(
-                [s.clone().detach() for s in batch.next_state]
-            ).to(self.device)
+                [
+                    torch.tensor(s, dtype=torch.float32).to(self.device)
+                    for s in batch.next_state
+                ]
+            )
 
             q_current = (
                 self.policy_net(state_batch)
@@ -131,6 +142,67 @@ class DQNAgent(Agent):
             loss.backward()
             self.optimizer.step()
             return loss.item()
+
+    def update_weights_prio(self):
+        # Verificamos que haya suficientes transiciones con prioridad
+        if (
+            not hasattr(self.memory, "priority_memory")
+            or len(self.memory.priority_memory) < self.batch_size
+        ):
+            return
+
+        # 1. Muestreo con prioridad
+        transitions, indices, weights = self.memory.sample_with_priority(
+            self.batch_size
+        )
+        batch = Transition(*zip(*transitions))
+
+        # 2. Preprocesamiento
+        state_batch = torch.stack(
+            [torch.tensor(s, dtype=torch.float32).to(self.device) for s in batch.state]
+        )
+        action_batch = torch.tensor(batch.action, dtype=torch.long, device=self.device)
+        reward_batch = torch.tensor(
+            batch.reward, dtype=torch.float32, device=self.device
+        )
+        done_batch = torch.tensor(batch.done, dtype=torch.float32, device=self.device)
+        next_state_batch = torch.stack(
+            [
+                torch.tensor(s, dtype=torch.float32).to(self.device)
+                for s in batch.next_state
+            ]
+        ).to(self.device)
+        weights = torch.tensor(
+            weights, dtype=torch.float32, device=self.device
+        )  # pesos de importancia
+
+        # 3. Q(s,a) actual
+        q_current = (
+            self.policy_net(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(1)
+        )
+
+        with torch.no_grad():
+            max_q_next_state = self.policy_net(next_state_batch).max(dim=1)[0] * (
+                1 - done_batch
+            )
+            target = reward_batch + self.gamma * max_q_next_state
+
+        # 5. Cálculo del error de TD y pérdida ponderada
+        td_error = q_current - target
+        loss = (weights * td_error.pow(2)).mean()
+
+        # 6. Optimización
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        # 7. Actualización de prioridades
+        new_priorities = (
+            td_error.abs().detach().cpu().numpy() + 1e-5
+        )  # para evitar cero
+        self.memory.update_priorities(indices, new_priorities)
+
+        return loss.item()
 
     def save_checkpoint(self, path):
         """
