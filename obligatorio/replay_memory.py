@@ -1,5 +1,9 @@
 import random
+import numpy as np
 from collections import namedtuple
+
+import time
+
 
 Transition = namedtuple(
     "Transition", ("state", "action", "reward", "done", "next_state")
@@ -49,7 +53,7 @@ class ReplayMemory:
             raise ValueError("Batch size exceeds the number of transitions in memory.")
         # TODO: retornar una muestra aleatoria de self.memory
         return random.sample(self.memory, batch_size)
-    
+
     def add_with_priority(self, state, action, reward, done, next_state, priority):
         """
         Agrega una transición a la memoria con prioridad asociada.
@@ -69,32 +73,35 @@ class ReplayMemory:
         self.priority_position = (self.priority_position + 1) % self.capacity
 
     def sample_with_priority(self, batch_size, alpha=0.6, beta=0.4):
-        """
-        Devuelve un batch aleatorio de transiciones usando muestreo por prioridad.
-        Params:
-         - batch_size (int): número de transiciones a muestrear.
-         - alpha (float): exponente para priorización.
-         - beta (float): exponente para pesos de importancia.
-        Returns:
-         - batch: lista de Transition
-         - indices: índices de las transiciones seleccionadas
-         - weights: pesos de importancia para cada transición
-        """
+        # start_time = time.perf_counter()
         if not hasattr(self, "priority_memory") or len(self.priority_memory) == 0:
             raise ValueError("No hay transiciones con prioridad en la memoria.")
-        priorities = [p for (_, p) in self.priority_memory]
-        scaled_priorities = [p ** alpha for p in priorities]
-        total = sum(scaled_priorities)
-        probs = [sp / total for sp in scaled_priorities]
-        indices = random.choices(range(len(self.priority_memory)), probs, k=batch_size)
+
+        # Extraer prioridades como array numpy
+        _, priorities = zip(*self.priority_memory)
+        priorities = np.array(priorities, dtype=np.float32)
+
+        # Escalado con alpha
+        scaled_priorities = priorities**alpha
+        probs = scaled_priorities / scaled_priorities.sum()
+
+        # Muestreo con las probabilidades
+        indices = np.random.choice(len(self.priority_memory), size=batch_size, p=probs)
+
+        # Transiciones muestreadas
         batch = [self.priority_memory[i][0] for i in indices]
+
+        # Cálculo de pesos de importancia
         N = len(self.priority_memory)
-        weights = [(N * probs[i]) ** (-beta) for i in indices]
-        max_weight = max(weights)
-        weights = [w / max_weight for w in weights]
-        return batch, indices, weights
-    
-    
+        selected_probs = probs[indices]
+        weights = (N * selected_probs) ** (-beta)
+        weights /= weights.max()  # Normalización
+
+        # if random.random() < 0.01:  # solo imprime en 1% de las llamadas
+        #    elapsed = time.perf_counter() - start_time
+        #    print(f"[PER] sample_with_priority took {elapsed:.4f} seconds")
+
+        return batch, indices, weights.tolist()
 
     def update_priorities(self, indices, priorities):
         """
