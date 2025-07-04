@@ -99,7 +99,7 @@ class Agent(ABC):
                         else 1.0
                     )
                     self.memory.add_with_priority(
-                        state, action, reward, done, next_state, priority
+                        state_phi, action, reward, done, next_state_phi, priority
                     )
                 else:
                     self.memory.add(state_phi, action, reward, done, next_state_phi)

@@ -208,7 +208,19 @@ class DQNAgent(Agent):
         """
         Save the current model state to a file in the DQN weights directory.
         """
-        save_path = f"weights/dqn/{path}"
+        # check in folder weights/dqn latest version and assign version + 1
+        version = 1
+        import os
+
+        if os.path.exists("weights/dqn"):
+            existing_versions = [
+                int(f.split("_version_")[-1])
+                for f in os.listdir("weights/dqn")
+                if f.startswith(path + "_version_")
+            ]
+            if existing_versions:
+                version = max(existing_versions) + 1
+        save_path = f"weights/dqn/{path}_version_{version}"
         torch.save(self.policy_net.state_dict(), save_path)
         print(f"Checkpoint saved to {save_path}")
 
