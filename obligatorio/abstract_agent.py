@@ -75,7 +75,7 @@ class Agent(ABC):
                 break
 
             state, _ = self.env.reset()
-            state_phi = self.state_processing_function(state)
+            state_phi = self.state_processing_function(state, device=self.device)
             current_episode_reward = 0.0
             current_episode_steps = 0
             episode_losses = []
@@ -86,7 +86,7 @@ class Agent(ABC):
 
                 next_state, reward, terminated, truncated, info = self.env.step(action)
 
-                next_state_phi = self.state_processing_function(next_state)
+                next_state_phi = self.state_processing_function(next_state, self.device)
                 current_episode_reward += reward
                 total_steps += 1
                 current_episode_steps += 1
@@ -150,7 +150,7 @@ class Agent(ABC):
 
         for ep in range(episodes):
             state, _ = env.reset()
-            state_tensor = self.state_processing_function(state)
+            state_tensor = self.state_processing_function(state, self.device)
             done = False
             while not done:
                 # TODO: seleccionar acción sin exploración
@@ -162,7 +162,7 @@ class Agent(ABC):
 
                 next_state, reward, terminated, truncated, info = env.step(action)
 
-                next_state = self.state_processing_function(next_state)
+                next_state = self.state_processing_function(next_state, self.device)
                 state_tensor = next_state
                 done = terminated or truncated
 

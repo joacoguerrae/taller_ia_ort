@@ -16,11 +16,11 @@ from gymnasium.wrappers import (
 )
 
 
-def process_state(obs):
+def process_state(obs, device="cuda"):
     """
     Preprocess the state to be used as input for the model (transform to tensor).
     """
-    return torch.tensor(obs, dtype=torch.float32, device="cpu") / 255.0
+    return torch.tensor(obs, dtype=torch.float32, device=device) / 255.0
 
 
 def show_observation(observation):
