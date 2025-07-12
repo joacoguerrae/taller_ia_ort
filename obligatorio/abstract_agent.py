@@ -63,10 +63,15 @@ class Agent(ABC):
         self.with_priority = with_priority  # Flag for priority memory
 
     def train(
-        self, number_episodes=10_000, max_steps_episode=10_000, max_steps=1_000_000
+        self,
+        number_episodes=10_000,
+        max_steps_episode=10_000,
+        max_steps=1_000_000,
+        random_states=[],
     ):
         rewards = []
         total_steps = 0
+        max_q_value_random_states = {}
 
         pbar = tqdm(range(number_episodes), desc="Training", unit="episode")
 
@@ -129,7 +134,10 @@ class Agent(ABC):
             if (ep + 1) % self.checkpoint_interval == 0:
                 self.save_checkpoint(f"checkpoint_{ep + 1}")
 
-        return rewards
+            if (ep + 1) % 100 == 0:
+                max_q_value_random_states[ep + 1] = self.get_state_values(random_states)
+
+        return rewards, max_q_value_random_states
 
     def compute_epsilon(self, steps_so_far):
         """
@@ -148,7 +156,9 @@ class Agent(ABC):
         Modo evaluación: ejecutar episodios sin actualizar la red.
         """
 
+        retornos = np.zeros(episodes)
         for ep in range(episodes):
+            retorno = 0
             state, _ = env.reset()
             state_tensor = self.state_processing_function(state, self.device)
             done = False
@@ -162,9 +172,14 @@ class Agent(ABC):
 
                 next_state, reward, terminated, truncated, info = env.step(action)
 
+                retorno += reward
+
                 next_state = self.state_processing_function(next_state, self.device)
                 state_tensor = next_state
                 done = terminated or truncated
+            retornos[ep] = retorno
+
+        return retornos
 
     @abstractmethod
     def select_action(self, state, current_steps, train=True):
@@ -211,5 +226,14 @@ class Agent(ABC):
 
         Returns:
             bool: True if checkpoint was loaded successfully, False otherwise
+        """
+        pass
+
+    @abstractmethod
+    def get_state_values(self, states):
+        """
+        Returns the state values for a batch of states.
+        This is used for evaluation purposes
+
         """
         pass

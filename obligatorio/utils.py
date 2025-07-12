@@ -124,3 +124,45 @@ def make_env(
         env = FireOnLifeLostWrapper(env)
 
     return env
+
+
+def plot_rewards_and_max_values(
+    rewards, max_values, agent_name, title="Training Progress"
+):
+    """
+    Plot the rewards and maximum Q-values over episodes.
+    """
+    fig, axs = plt.subplots(1, 2, figsize=(15, 6))
+    fig.suptitle(title, fontsize=16)
+
+    # Grafico de recompensas
+    if len(rewards) % 100 != 0:
+        print(
+            "Advertencia: La longitud de la lista de recompensas no es un múltiplo de 100. Se descartarán los últimos episodios."
+        )
+        num_episodes = len(rewards) // 100 * 100
+        rewards = rewards[:num_episodes]
+
+    avg_rewards = np.mean(np.array(rewards).reshape(-1, 100), axis=1)
+    episodes_rewards = np.arange(100, len(rewards) + 1, 100)
+
+    axs[0].plot(episodes_rewards, avg_rewards, color="blue", marker="o", linestyle="-")
+    axs[0].set_title("Recompensa Promedio por Episodios")
+    axs[0].set_xlabel("Episodios")
+    axs[0].set_ylabel("Recompensa Promedio")
+    axs[0].grid(True)
+
+    # Grafico de valores Q máximos
+    episodes_q = list(max_values.keys())
+    q_values = list(max_values.values())
+
+    axs[1].plot(episodes_q, q_values, color="orange", marker="o", linestyle="-")
+    axs[1].set_title("Valor Q Máximo Promedio")
+    axs[1].set_xlabel("Episodios")
+    axs[1].set_ylabel("Valor Q Promedio")
+    axs[1].grid(True)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+    plt.savefig(f"training_progress_{agent_name}.png")
+    plt.close(fig)

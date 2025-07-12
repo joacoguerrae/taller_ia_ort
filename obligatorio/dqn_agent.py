@@ -231,3 +231,14 @@ class DQNAgent(Agent):
         load_path = f"weights/dqn/{path}"
         self.policy_net.load_state_dict(torch.load(load_path, map_location=self.device))
         print(f"Checkpoint loaded from {load_path}")
+
+    def get_state_values(self, states):
+        self.policy_net.eval() 
+    
+        with torch.no_grad():
+            q_values = [self.policy_net(state).max().item() for state in states]
+
+        # Volver a poner la red en modo de entrenamiento
+        self.policy_net.train() 
+
+        return np.mean(np.array(q_values))

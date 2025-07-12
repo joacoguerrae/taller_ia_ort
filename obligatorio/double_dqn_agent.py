@@ -68,10 +68,7 @@ class DoubleDQNAgent(Agent):
         # Use a smaller sync_target value at start
         self.sync_target = sync_target
         self.steps_done = 0
-        self.with_priority = (
-            with_priority  # Double DQN does not use priority by default
-        )
-        # Inicializar epsilon
+        self.with_priority = with_priority
 
     def select_action(self, state, current_steps, train=True):
         """Select action using epsilon-greedy policy for single or vectorized environments"""
@@ -156,6 +153,70 @@ class DoubleDQNAgent(Agent):
 
         return loss.item()
 
+    def update_weights_prio(self):
+        if (
+            not hasattr(self.memory, "priority_memory")
+            or len(self.memory.priority_memory) < self.batch_size
+        ):
+            return
+
+        transitions, indices, weights = self.memory.sample_with_priority(
+            self.batch_size
+        )
+        batch = Transition(*zip(*transitions))
+
+        # Properly handle dimensions and device
+        states = torch.stack([s.clone().detach() for s in batch.state]).to(self.device)
+        actions = torch.tensor(
+            batch.action, device=self.device, dtype=torch.long
+        ).unsqueeze(1)  # Changed
+        rewards = torch.tensor(
+            batch.reward, device=self.device, dtype=torch.float32
+        ).unsqueeze(1)  # Changed
+        next_states = torch.stack([s.clone().detach() for s in batch.next_state]).to(
+            self.device
+        )
+        dones = torch.tensor(
+            batch.done, device=self.device, dtype=torch.float32
+        ).unsqueeze(1)  # Changed
+        weights = torch.tensor(
+            weights, device=self.device, dtype=torch.float32
+        ).unsqueeze(1)
+
+        # Calculate current Q values
+        q_current = self.policy_net(states).gather(1, actions)
+
+        # Calculate target Q values using Double DQN
+        with torch.no_grad():
+            # Get actions from policy net
+            next_actions = self.policy_net(next_states).argmax(dim=1, keepdim=True)
+            # Get Q-values from target net for those actions
+            q_next = self.target_net(next_states).gather(1, next_actions)
+            # Calculate target values
+            target_q = rewards + (1 - dones) * self.gamma * q_next
+
+        td_error = q_current - target_q.detach()
+
+        # Compute loss and update
+        loss = (weights * td_error.pow(2)).mean()
+        self.optimizer.zero_grad()
+        loss.backward()
+        # Add gradient clipping
+        torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
+        self.optimizer.step()
+
+        new_priorities = (
+            td_error.abs().detach().cpu().squeeze().numpy() + 1e-5
+        )  # evitamos prioridades 0
+        self.memory.update_priorities(indices, new_priorities)
+
+        # Sync target network
+        self.steps_done += 1
+        if self.steps_done % self.sync_target == 0:
+            self.target_net.load_state_dict(self.policy_net.state_dict())
+
+        return loss.item()
+
     def save_checkpoint(self, path):
         """
         Save both policy and target networks to files in the Double DQN weights directory.
@@ -186,5 +247,13 @@ class DoubleDQNAgent(Agent):
         )
         print(f"Checkpoints loaded from {policy_path} and {target_path}")
 
-    def update_weights_prio(self):
-        pass
+    def get_state_values(self, states):
+        self.policy_net.eval()
+
+        with torch.no_grad():
+            q_values = [self.policy_net(state).max().item() for state in states]
+
+        # Volver a poner la red en modo de entrenamiento
+        self.policy_net.train()
+
+        return np.mean(np.array(q_values))
