@@ -165,4 +165,7 @@ def plot_rewards_and_max_values(
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
     plt.savefig(f"training_progress_{agent_name}.png")
+    plt.show()
+    print(f"Gráfico guardado como training_progress_{agent_name}.png")
+
     plt.close(fig)

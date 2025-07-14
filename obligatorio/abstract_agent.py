@@ -132,7 +132,10 @@ class Agent(ABC):
             pbar.set_postfix(metrics)
 
             if (ep + 1) % self.checkpoint_interval == 0:
-                self.save_checkpoint(f"checkpoint_{ep + 1}")
+                if not self.with_priority:
+                    self.save_checkpoint(f"checkpoint_{ep + 1}")
+                else:
+                    self.save_checkpoint(f"checkpoint_{ep + 1}", with_priority=True)
 
             if (ep + 1) % 100 == 0:
                 max_q_value_random_states[ep + 1] = self.get_state_values(random_states)

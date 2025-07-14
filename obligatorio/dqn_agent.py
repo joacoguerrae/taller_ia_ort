@@ -204,7 +204,7 @@ class DQNAgent(Agent):
 
         return loss.item()
 
-    def save_checkpoint(self, path):
+    def save_checkpoint(self, path, with_priority=False):
         """
         Save the current model state to a file in the DQN weights directory.
         """
@@ -212,33 +212,50 @@ class DQNAgent(Agent):
         version = 1
         import os
 
-        if os.path.exists("weights/dqn"):
-            existing_versions = [
-                int(f.split("_version_")[-1])
-                for f in os.listdir("weights/dqn")
-                if f.startswith(path + "_version_")
-            ]
-            if existing_versions:
-                version = max(existing_versions) + 1
-        save_path = f"weights/dqn/{path}_version_{version}"
-        torch.save(self.policy_net.state_dict(), save_path)
+        if not with_priority:
+            if os.path.exists("weights/dqn"):
+                existing_versions = [
+                    int(f.split("_version_")[-1])
+                    for f in os.listdir("weights/dqn")
+                    if f.startswith(path + "_version_")
+                ]
+                if existing_versions:
+                    version = max(existing_versions) + 1
+            save_path = f"weights/dqn/{path}_version_{version}"
+            torch.save(self.policy_net.state_dict(), save_path)
+        else:
+            if os.path.exists("weights/dqn_prio"):
+                existing_versions = [
+                    int(f.split("_version_")[-1])
+                    for f in os.listdir("weights/dqn_prio")
+                    if f.startswith(path + "_version_")
+                ]
+                if existing_versions:
+                    version = max(existing_versions) + 1
+            save_path = f"weights/dqn_prio/{path}_version_{version}"
+            torch.save(self.policy_net.state_dict(), save_path)
         print(f"Checkpoint saved to {save_path}")
 
-    def load_checkpoint(self, path):
+    def load_checkpoint(self, path, with_priority=False):
         """
         Load the model state from a file in the DQN weights directory.
         """
-        load_path = f"weights/dqn/{path}"
+        if not with_priority:
+            load_path = f"weights/dqn/{path}"
+        else:
+            load_path = f"weights/dqn_prio/{path}"
         self.policy_net.load_state_dict(torch.load(load_path, map_location=self.device))
         print(f"Checkpoint loaded from {load_path}")
 
     def get_state_values(self, states):
-        self.policy_net.eval() 
-    
+        self.policy_net.eval()
+
         with torch.no_grad():
-            q_values = [self.policy_net(state).max().item() for state in states]
+            q_values = [
+                self.policy_net(state.unsqueeze(0)).max().item() for state in states
+            ]
 
         # Volver a poner la red en modo de entrenamiento
-        self.policy_net.train() 
+        self.policy_net.train()
 
         return np.mean(np.array(q_values))

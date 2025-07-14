@@ -217,24 +217,36 @@ class DoubleDQNAgent(Agent):
 
         return loss.item()
 
-    def save_checkpoint(self, path):
+    def save_checkpoint(self, path, with_priority=False):
         """
         Save both policy and target networks to files in the Double DQN weights directory.
         """
-        base_path = f"weights/ddqn/{path}"
-        # Save policy network
-        policy_path = f"{base_path}_policy_net.pth"
-        torch.save(self.policy_net.state_dict(), policy_path)
-        # Save target network
-        target_path = f"{base_path}_target_net.pth"
-        torch.save(self.target_net.state_dict(), target_path)
+        if not with_priority:
+            base_path = f"weights/ddqn/{path}"
+            # Save policy network
+            policy_path = f"{base_path}_policy_net.pth"
+            torch.save(self.policy_net.state_dict(), policy_path)
+            # Save target network
+            target_path = f"{base_path}_target_net.pth"
+            torch.save(self.target_net.state_dict(), target_path)
+        else:
+            base_path = f"weights/ddqn_prio/{path}"
+            # Save policy network
+            policy_path = f"{base_path}_policy_net.pth"
+            torch.save(self.policy_net.state_dict(), policy_path)
+            # Save target network
+            target_path = f"{base_path}_target_net.pth"
+            torch.save(self.target_net.state_dict(), target_path)
         print(f"Checkpoints saved to {policy_path} and {target_path}")
 
-    def load_checkpoint(self, path):
+    def load_checkpoint(self, path, with_priority=False):
         """
         Load both policy and target networks from files in the Double DQN weights directory.
         """
-        base_path = f"weights/ddqn/{path}"
+        if not with_priority:
+            base_path = f"weights/ddqn/{path}"
+        else:
+            base_path = f"weights/ddqn_prio/{path}"
         # Load policy network
         policy_path = f"{base_path}_policy_net.pth"
         self.policy_net.load_state_dict(
@@ -251,7 +263,9 @@ class DoubleDQNAgent(Agent):
         self.policy_net.eval()
 
         with torch.no_grad():
-            q_values = [self.policy_net(state).max().item() for state in states]
+            q_values = [
+                self.policy_net(state.unsqueeze(0)).max().item() for state in states
+            ]
 
         # Volver a poner la red en modo de entrenamiento
         self.policy_net.train()
