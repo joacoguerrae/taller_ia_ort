@@ -50,7 +50,9 @@ class DQN_CNN_Model(nn.Module):
         )
 
         self.l2 = nn.Sequential(
-            nn.Linear(32 * 9 * 9, 256), nn.ReLU(), nn.Linear(256, n_actions)
+            nn.Linear(32 * 9 * 9, 256), 
+            nn.ReLU(), 
+            nn.Linear(256, n_actions)
         )
 
     def forward(self, x):
